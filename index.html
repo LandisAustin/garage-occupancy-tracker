@@ -262,7 +262,7 @@
                 set(ref(database, "occupancy/hourStamp"), hour);
             }
 
-            if (minutes > 10) {
+            if (minutes >= 5) {
                 const netTraffic = occupancy - occAtHour;
                 const rate = netTraffic / minutes;
                 const absRate = Math.abs(rate).toFixed(1);
