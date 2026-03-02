@@ -1,121 +1,301 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Parking Garage Occupancy Tracker</title>
+    <title>Parking Garage Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        /* ===== Base Page Styling ===== */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f8;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+            transition: background 0.3s ease, color 0.3s ease;
+        }
+
+        h1 {
+            margin-top: 40px;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            margin: 25px auto;
+            width: 85%;
+            max-width: 600px;
+            border-radius: 14px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+            transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        #occupancyNumber {
+            font-size: 56px;
+            font-weight: bold;
+        }
+
+        #occupancyPercent {
+            font-size: 20px;
+            color: gray;
+        }
+
+        .progress-container {
+            width: 100%;
+            background: #ddd;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        #progress {
+            height: 30px;
+            width: 0%;
+            border-radius: 10px;
+            transition: width 0.4s ease;
+        }
+
+        .buttons {
+            margin-top: 25px;
+        }
+
+        button {
+            font-size: 22px;
+            padding: 10px 25px;
+            margin: 0 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #3498db;
+            color: white;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 12px 22px;
+            border-radius: 25px;
+            font-weight: bold;
+            color: white;
+            margin-top: 10px;
+        }
+
+        #flowDetails {
+            margin-top: 12px;
+            font-size: 16px;
+            color: #555;
+        }
+
+        #timestamp {
+            margin-top: 10px;
+            font-size: 14px;
+            color: gray;
+        }
+
+        /* ===== Dark Mode Styles ===== */
+        body.dark {
+			background: #111827;
+			color: #f9fafb;
+		}
+	
+
+		body.dark #occupancyPercent {
+			color: #C0C0C0; /* slightly brighter for readability */
+		}
+		
+		body.dark #flowDetails {
+			color: #E0E0E0; /* slightly brighter for readability */
+		}
+		
+		body.dark #timestamp {
+			color: gray
+		}
+
+		body.dark .card {
+			background: #1f2937;
+			box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+		}
+
+		body.dark .progress-container {
+			background: #374151;
+		}
+
+		/* Remove color override for status badges, let text stay visible */
+		.filling {
+			background: #e74c3c; /* red */
+		}
+
+		.emptying {
+			background: #2ecc71; /* green */
+		}
+
+		.theme-toggle {
+			text-align: right;
+			margin: 20px 210px 25px; /* Add top margin so it isn't flush with top */
+			width: 85%;
+			max-width: 600px;
+		}
+
+		.theme-toggle button {
+			padding: 8px 14px;
+			cursor: pointer;
+			border-radius: 8px;
+			border: none;
+		}
+    </style>
 </head>
 
-<body style="font-family: Arial; text-align: center; margin-top: 50px;">
+<body>
 
-    <h1>Parking Garage Dashboard</h1>
-
-	<!-- Stats Section -->
-    <div style="margin: 30px 0; font-size: 24px;" id="stats">
-        Loading…
-    </div>
-	
-	<!-- Progress Bar -->
-	<div style="width: 80%; margin: auto; background: #ddd; border-radius: 8px;">
-        <div id="progress" style="width: 0%; height: 30px; background: green; border-radius: 8px;">
-		</div>
-    </div>
-	<div style="margin: 20px;">
-		<button id="decrease" style="font-size: 24px; padding: 10px 20px;">–</button>
-	    <button id="increase" style="font-size: 24px; padding: 10px 20px;">+</button>
-	</div>
-
-	<!-- Last Updated Timestamp -->
-	<div style="margin-top: 15px; font-size: 18px;" id="timestamp">
-        —
+    <!-- Dark Mode Toggle -->
+    <div class="theme-toggle">
+        <button id="themeToggle">🌙</button>
     </div>
 
-    <!-- Firebase SDK -->
+    <h1>Live Garage Dashboard</h1>
+
+    <!-- Occupancy Card -->
+    <div class="card">
+        <div id="occupancyNumber">Loading...</div>
+        <div id="occupancyPercent"></div>
+
+        <div class="progress-container">
+            <div id="progress"></div>
+        </div>
+
+        <div class="buttons">
+            <button id="decrease">–</button>
+            <button id="increase">+</button>
+        </div>
+    </div>
+
+    <!-- Flow Card -->
+    <div class="card">
+        <div id="flowStatus"></div>
+        <div id="flowDetails"></div>
+        <div id="timestamp"></div>
+    </div>
+
     <script type="module">
 
-        // Import Firebase tools
+        // ===== Firebase Setup =====
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-        // Your web app's Firebase configuration
-		const firebaseConfig = {
-		  apiKey: "AIzaSyDZQsc7yVMAGUQcmkRPRTDj0RtNXRzzMxI",
-		  authDomain: "parking-garage-sensor.firebaseapp.com",
-		  databaseURL: "https://parking-garage-sensor-default-rtdb.firebaseio.com",
-		  projectId: "parking-garage-sensor",
-		  storageBucket: "parking-garage-sensor.firebasestorage.app",
-		  messagingSenderId: "942036034143",
-		  appId: "1:942036034143:web:60f671fb4049baf439f1ea"
-		};
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "parking-garage-sensor.firebaseapp.com",
+            databaseURL: "https://parking-garage-sensor-default-rtdb.firebaseio.com",
+            projectId: "parking-garage-sensor",
+            storageBucket: "parking-garage-sensor.firebasestorage.app",
+            messagingSenderId: "942036034143",
+            appId: "1:942036034143:web:60f671fb4049baf439f1ea"
+        };
+
         const app = initializeApp(firebaseConfig);
         const database = getDatabase(app);
         const rootRef = ref(database, "/");
 
-		
-		// Javascript
+        // ===== DOM References =====
+        const occupancyNumber = document.getElementById("occupancyNumber");
+        const occupancyPercent = document.getElementById("occupancyPercent");
+        const progressEl = document.getElementById("progress");
+        const flowStatusEl = document.getElementById("flowStatus");
+        const flowDetailsEl = document.getElementById("flowDetails");
+        const timestampEl = document.getElementById("timestamp");
+        const increaseBtn = document.getElementById("increase");
+        const decreaseBtn = document.getElementById("decrease");
+        const themeToggleBtn = document.getElementById("themeToggle");
 
-		// Update Displays
-        onValue(rootRef, (snapshot) => {
-		    const data = snapshot.val();
-		    const occupancy = data.occupancy || 0;
-		    const capacity = data.capacity || 1; // avoid divide‑by‑zero
-		    const percent = ((occupancy / capacity) * 100).toFixed(0);
-		
-		    // Update text
-		    document.getElementById("stats").innerText =
-		        `${occupancy} / ${capacity} (${percent}%)`;
-		
-		    // Update progress bar
-		    const bar = document.getElementById("progress");
-		    bar.style.width = `${percent}%`;
-		
-		    // Change color based on fill level
-		    if (percent < 60) {
-		        bar.style.background = "green";
-		    } else if (percent < 90) {
-		        bar.style.background = "orange";
-		    } else {
-		        bar.style.background = "red";
-		    }
+        // ===== Dark Mode Persistence =====
+        if (localStorage.getItem("theme") === "dark") {
+            document.body.classList.add("dark");
+            themeToggleBtn.innerText = "☀️";
+        }
 
-		    // Update timestamp
-		    const now = new Date();
-		    document.getElementById("timestamp").innerText =
-		        `Last update: ${now.toLocaleTimeString()}`;
-		});
+        themeToggleBtn.addEventListener("click", () => {
+            document.body.classList.toggle("dark");
+            if (document.body.classList.contains("dark")) {
+                localStorage.setItem("theme", "dark");
+                themeToggleBtn.innerText = "☀️";
+            } else {
+                localStorage.setItem("theme", "light");
+                themeToggleBtn.innerText = "🌙";
+            }
+        });
 
+        // ===== Occupancy Update =====
+        onValue(rootRef, snapshot => {
+            const data = snapshot.val() || {};
+            const occupancy = data.occupancy?.current ?? 0;
+            const capacity = data.capacity ?? 1;
+            const percent = Math.min((occupancy / capacity) * 100, 100);
 
-		// Increase occupancy
-		document.getElementById("increase").addEventListener("click", () => {
-			//document.getElementById("button-debug").innerText = `Increase`;
-		    get(rootRef).then((snapshot) => {
-		        const data = snapshot.val();
-		        const occupancy = data.occupancy || 0;
-		        const capacity = data.capacity || 1;
-		
-		        if (occupancy < capacity) {
-		            set(ref(database, "occupancy"), occupancy + 1);
-		        }
-		    });
-		});
-		
-		// Decrease occupancy
-		document.getElementById("decrease").addEventListener("click", () => {
-			//document.getElementById("button-debug").innerText = `Decrease`;
-		    get(rootRef).then((snapshot) => {
-		        const data = snapshot.val();
-		        const occupancy = data.occupancy || 0;
-		
-		        if (occupancy > 0) {
-		            set(ref(database, "occupancy"), occupancy - 1);
-		        }
-		    });
-		});
+            // Occupancy Display
+            occupancyNumber.innerText = `${occupancy} / ${capacity}`;
+            occupancyPercent.innerText = `${percent.toFixed(0)}% Full`;
+
+            // Progress Bar
+            progressEl.style.width = `${percent}%`;
+            progressEl.style.background = percent < 60 ? "#2ecc71" : percent < 90 ? "#f39c12" : "#e74c3c";
+
+            // Timestamp
+            const now = new Date();
+            timestampEl.innerText = `Last update: ${now.toLocaleTimeString()}`;
+
+            // Hourly Flow Calculation
+            const minutes = now.getMinutes() || 1;
+            const hour = now.getHours();
+            const lastRecordedHour = data.occupancy?.hourStamp ?? hour;
+            const occAtHour = data.occupancy?.atHour ?? occupancy;
+
+            if (hour !== lastRecordedHour) {
+                set(ref(database, "occupancy/atHour"), occupancy);
+                set(ref(database, "occupancy/hourStamp"), hour);
+            }
+
+            if (minutes > 10) {
+                const netTraffic = occupancy - occAtHour;
+                const rate = netTraffic / minutes;
+                const absRate = Math.abs(rate).toFixed(1);
+
+                if (rate > 0) {
+                    flowStatusEl.innerHTML = `<div class="badge filling">Filling</div>`;
+                    flowDetailsEl.innerText = `~ ${absRate} cars/min | ${occAtHour} ↑ ${occupancy} (+${netTraffic})`;
+                } else if (rate < 0) {
+                    flowStatusEl.innerHTML = `<div class="badge emptying">Emptying</div>`;
+                    flowDetailsEl.innerText = `~ ${absRate} cars/min | ${occAtHour} ↓ ${occupancy} (${netTraffic})`;
+                } else {
+                    flowStatusEl.innerHTML = `<div class="badge" style="background:#95a5a6;">Stable</div>`;
+                    flowDetailsEl.innerText = `${occAtHour} → ${occupancy}`;
+                }
+            } else {
+                flowStatusEl.innerHTML = `<div class="badge" style="background:#95a5a6;">Collecting Data</div>`;
+                flowDetailsEl.innerText = "Calculating hourly trend...";
+            }
+        });
+
+        // ===== Occupancy Control =====
+        increaseBtn.addEventListener("click", () => adjustOccupancy(1));
+        decreaseBtn.addEventListener("click", () => adjustOccupancy(-1));
+
+        function adjustOccupancy(amount) {
+            get(rootRef).then(snapshot => {
+                const data = snapshot.val() || {};
+                const occupancy = data.occupancy?.current ?? 0;
+                const capacity = data.capacity ?? 1;
+                const newValue = occupancy + amount;
+
+                if (newValue >= 0 && newValue <= capacity) {
+                    set(ref(database, "occupancy/current"), newValue);
+                }
+            });
+        }
 
     </script>
 
 </body>
-
 </html>
-
-
-
-
