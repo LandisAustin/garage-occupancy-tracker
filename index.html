@@ -45,7 +45,7 @@
             background: #ddd;
             border-radius: 10px;
             margin-top: 20px;
-			transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+            transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
         }
 
         #progress {
@@ -55,25 +55,7 @@
             transition: width 0.4s ease;
         }
 
-        .buttons {
-            margin-top: 25px;
-        }
-
-        button {
-            font-size: 22px;
-            padding: 10px 25px;
-            margin: 0 10px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            background: #3498db;
-            color: white;
-            transition: 0.2s;
-        }
-
-        button:hover {
-            background: #2980b9;
-        }
+        /* Removed .buttons styling since buttons are gone */
 
         .badge {
             display: inline-block;
@@ -98,58 +80,52 @@
 
         /* ===== Dark Mode Styles ===== */
         body.dark {
-			background: #111827;
-			color: #f9fafb;
-		}
-	
+            background: #111827;
+            color: #f9fafb;
+        }
 
-		body.dark #occupancyPercent {
-			color: #C0C0C0; /* slightly brighter for readability */
-		}
-		
-		body.dark #flowDetails {
-			color: #E0E0E0; /* slightly brighter for readability */
-		}
-		
-		body.dark #timestamp {
-			color: gray
-		}
+        body.dark #occupancyPercent {
+            color: #C0C0C0;
+        }
 
-		body.dark .card {
-			background: #1f2937;
-			box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-		}
+        body.dark #flowDetails {
+            color: #E0E0E0;
+        }
 
-		body.dark .progress-container {
-			background: #374151;
-		}
-		
-		body.dark button {
-			background: #0041C2;
-		}
+        body.dark #timestamp {
+            color: gray;
+        }
 
-		/* Remove color override for status badges, let text stay visible */
-		.filling {
-			background: #e74c3c; /* red */
-		}
+        body.dark .card {
+            background: #1f2937;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+        }
 
-		.emptying {
-			background: #2ecc71; /* green */
-		}
+        body.dark .progress-container {
+            background: #374151;
+        }
 
-		.theme-toggle {
-			text-align: right;
-			margin: 20px auto 25px; /* Add top margin so it isn't flush with top */
-			width: 85%;
-			max-width: 600px;
-		}
+        .filling {
+            background: #e74c3c;
+        }
 
-		.theme-toggle button {
-			padding: 8px 14px;
-			cursor: pointer;
-			border-radius: 8px;
-			border: none;
-		}
+        .emptying {
+            background: #2ecc71;
+        }
+
+        .theme-toggle {
+            text-align: right;
+            margin: 20px auto 25px;
+            width: 85%;
+            max-width: 600px;
+        }
+
+        .theme-toggle button {
+            padding: 8px 14px;
+            cursor: pointer;
+            border-radius: 8px;
+            border: none;
+        }
     </style>
 </head>
 
@@ -170,11 +146,6 @@
         <div class="progress-container">
             <div id="progress"></div>
         </div>
-
-        <div class="buttons">
-            <button id="decrease">–</button>
-            <button id="increase">+</button>
-        </div>
     </div>
 
     <!-- Flow Card -->
@@ -188,7 +159,7 @@
 
         // ===== Firebase Setup =====
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "YOUR_API_KEY",
@@ -211,8 +182,6 @@
         const flowStatusEl = document.getElementById("flowStatus");
         const flowDetailsEl = document.getElementById("flowDetails");
         const timestampEl = document.getElementById("timestamp");
-        const increaseBtn = document.getElementById("increase");
-        const decreaseBtn = document.getElementById("decrease");
         const themeToggleBtn = document.getElementById("themeToggle");
 
         // ===== Dark Mode Persistence =====
@@ -257,11 +226,6 @@
             const lastRecordedHour = data.occupancy?.hourStamp ?? hour;
             const occAtHour = data.occupancy?.atHour ?? occupancy;
 
-            if (hour !== lastRecordedHour) {
-                set(ref(database, "occupancy/atHour"), occupancy);
-                set(ref(database, "occupancy/hourStamp"), hour);
-            }
-
             if (minutes >= 5) {
                 const netTraffic = occupancy - occAtHour;
                 const rate = netTraffic / minutes;
@@ -282,23 +246,6 @@
                 flowDetailsEl.innerText = "Calculating hourly trend...";
             }
         });
-
-        // ===== Occupancy Control =====
-        increaseBtn.addEventListener("click", () => adjustOccupancy(1));
-        decreaseBtn.addEventListener("click", () => adjustOccupancy(-1));
-
-        function adjustOccupancy(amount) {
-            get(rootRef).then(snapshot => {
-                const data = snapshot.val() || {};
-                const occupancy = data.occupancy?.current ?? 0;
-                const capacity = data.capacity ?? 1;
-                const newValue = occupancy + amount;
-
-                if (newValue >= 0 && newValue <= capacity) {
-                    set(ref(database, "occupancy/current"), newValue);
-                }
-            });
-        }
 
     </script>
 
