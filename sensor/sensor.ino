@@ -1,10 +1,13 @@
 /*********
-  Firebase Occupancy Increment
-  + HC-SR04 Entrance Sensor
+  Firebase Occupancy Tracker (Robust Demo Version)
+  + HC-SR04 Sensors
+  + Debug LEDs
+  + Offline Support
+  + WiFi Reconnect Button
   Author: Austin Landis
 *********/
 
-# include "credentials_example.h"
+#include "credentials.h"
 
 #define ENABLE_USER_AUTH
 #define ENABLE_DATABASE
@@ -15,20 +18,36 @@
 #include <FirebaseClient.h>
 
 // --------------------
-// Button Setup
+// LED Setup
 // --------------------
-#define BUTTON_PIN 5
+#define WIFI_LED 2
+#define ENTRY_LED 15
+#define EXIT_LED 16
+
+// --------------------
+// WiFi Reconnect Button
+// --------------------
+#define WIFI_BUTTON 5
 bool lastButtonState = HIGH;
 
 // --------------------
 // Ultrasonic Setup
 // --------------------
-#define TRIG_PIN 32
-#define ECHO_PIN 33
+#define ENTRY_TRIG_PIN 4
+#define ENTRY_ECHO_PIN 32
 
-#define DISTANCE_THRESHOLD 10  // cm (adjust as needed)
+#define EXIT_TRIG_PIN 18
+#define EXIT_ECHO_PIN 34
 
-bool objectDetected = false;
+#define DISTANCE_THRESHOLD 15  // cm
+
+bool entryObjectDetected = false;
+bool exitObjectDetected = false;
+
+// --------------------
+// Local Occupancy (OFFLINE SUPPORT)
+// --------------------
+int localOccupancy = 0;
 
 // --------------------
 // Firebase Setup
@@ -44,133 +63,297 @@ AsyncClient aClient(ssl_client);
 RealtimeDatabase Database;
 
 // --------------------
-// Function to increment occupancy
+// WiFi Reconnect Function
+// --------------------
+void reconnectWiFi()
+{
+  Serial.println("Attempting WiFi reconnect...");
+
+  WiFi.disconnect();
+  delay(500);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long startAttemptTime = millis();
+  const unsigned long wifiTimeout = 8000;
+
+  while (WiFi.status() != WL_CONNECTED &&
+         millis() - startAttemptTime < wifiTimeout)
+  {
+    digitalWrite(WIFI_LED, HIGH);
+    delay(200);
+    digitalWrite(WIFI_LED, LOW);
+    delay(200);
+    Serial.print(".");
+  }
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    digitalWrite(WIFI_LED, HIGH);
+    Serial.println("\nWiFi reconnected!");
+
+    // Reinitialize Firebase
+    ssl_client.setInsecure();
+    ssl_client.setConnectionTimeout(1000);
+    ssl_client.setHandshakeTimeout(5);
+
+    initializeApp(aClient, app, getAuth(user_auth), processData, "authTask");
+    app.getApp<RealtimeDatabase>(Database);
+    Database.url(DATABASE_URL);
+  }
+  else
+  {
+    digitalWrite(WIFI_LED, LOW);
+    Serial.println("\nReconnect failed");
+  }
+}
+
+// --------------------
+// Increment Occupancy
 // --------------------
 void incrementOccupancy()
 {
-  float delta = 1;
+  localOccupancy++;
 
-  object_t incr_json, sv_json;
-  JsonWriter writer;
+  Serial.print("Local Occupancy: ");
+  Serial.println(localOccupancy);
 
-  writer.create(incr_json, "increment", delta);
-  writer.create(sv_json, ".sv", incr_json);
+  if (WiFi.status() == WL_CONNECTED && app.ready())
+  {
+    float delta = 1;
 
-  bool status = Database.set<object_t>(
-    aClient,
-    "/occupancy/current",
-    sv_json
-  );
+    object_t incr_json, sv_json;
+    JsonWriter writer;
 
-  if (status)
-    Serial.println("Increment success!");
+    writer.create(incr_json, "increment", delta);
+    writer.create(sv_json, ".sv", incr_json);
+
+    bool status = Database.set<object_t>(
+      aClient,
+      "/occupancy/current",
+      sv_json
+    );
+
+    if (status)
+      Serial.println("Firebase Increment success!");
+    else
+      Firebase.printf("Error: %s\n", aClient.lastError().message().c_str());
+  }
   else
-    Firebase.printf("Error: %s\n", aClient.lastError().message().c_str());
+  {
+    Serial.println("Firebase unavailable (offline mode)");
+  }
+}
+
+// --------------------
+// Decrement Occupancy
+// --------------------
+void decrementOccupancy()
+{
+  localOccupancy--;
+
+  if (localOccupancy < 0)
+    localOccupancy = 0;
+
+  Serial.print("Local Occupancy: ");
+  Serial.println(localOccupancy);
+
+  if (WiFi.status() == WL_CONNECTED && app.ready())
+  {
+    float delta = -1;
+
+    object_t incr_json, sv_json;
+    JsonWriter writer;
+
+    writer.create(incr_json, "increment", delta);
+    writer.create(sv_json, ".sv", incr_json);
+
+    bool status = Database.set<object_t>(
+      aClient,
+      "/occupancy/current",
+      sv_json
+    );
+
+    if (status)
+      Serial.println("Firebase Decrement success!");
+    else
+      Firebase.printf("Error: %s\n", aClient.lastError().message().c_str());
+  }
+  else
+  {
+    Serial.println("Firebase unavailable (offline mode)");
+  }
 }
 
 // --------------------
 // Read Ultrasonic Distance
 // --------------------
-long readDistanceCM()
+long readDistanceCM(int trigPin, int echoPin)
 {
-  digitalWrite(TRIG_PIN, LOW);
+  digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
 
-  digitalWrite(TRIG_PIN, HIGH);
+  digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+  digitalWrite(trigPin, LOW);
 
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000); // timeout 30ms
-
-  long distance = duration / 58; // convert to cm
+  long duration = pulseIn(echoPin, HIGH, 30000);
+  long distance = duration / 58;
 
   return distance;
 }
 
-void setup() {
+// --------------------
+// Setup
+// --------------------
+void setup()
+{
   Serial.begin(115200);
+  Serial.println("System Start");
+
+  // LED setup
+  pinMode(WIFI_LED, OUTPUT);
+  pinMode(ENTRY_LED, OUTPUT);
+  pinMode(EXIT_LED, OUTPUT);
 
   // Button setup
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(WIFI_BUTTON, INPUT_PULLUP);
 
   // Ultrasonic setup
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
+  pinMode(ENTRY_TRIG_PIN, OUTPUT);
+  pinMode(ENTRY_ECHO_PIN, INPUT);
 
-  // Connect to WiFi
+  pinMode(EXIT_TRIG_PIN, OUTPUT);
+  pinMode(EXIT_ECHO_PIN, INPUT);
+
+  // --------------------
+  // WiFi Connection (with timeout)
+  // --------------------
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
+
+  unsigned long startAttemptTime = millis();
+  const unsigned long wifiTimeout = 8000;
+
+  while (WiFi.status() != WL_CONNECTED &&
+         millis() - startAttemptTime < wifiTimeout)
+  {
+    digitalWrite(WIFI_LED, HIGH);
+    delay(200);
+    digitalWrite(WIFI_LED, LOW);
+    delay(200);
     Serial.print(".");
-    delay(300);
   }
-  Serial.println("\nWiFi connected!");
 
-  // SSL config
-  ssl_client.setInsecure();
-  ssl_client.setConnectionTimeout(1000);
-  ssl_client.setHandshakeTimeout(5);
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    digitalWrite(WIFI_LED, HIGH);
+    Serial.println("\nWiFi connected!");
 
-  // Firebase init
-  initializeApp(aClient, app, getAuth(user_auth), processData, "authTask");
-  app.getApp<RealtimeDatabase>(Database);
-  Database.url(DATABASE_URL);
+    // --------------------
+    // SSL Config
+    // --------------------
+    ssl_client.setInsecure();
+    ssl_client.setConnectionTimeout(1000);
+    ssl_client.setHandshakeTimeout(5);
+
+    // --------------------
+    // Firebase Init
+    // --------------------
+    initializeApp(aClient, app, getAuth(user_auth), processData, "authTask");
+    app.getApp<RealtimeDatabase>(Database);
+    Database.url(DATABASE_URL);
+  }
+  else
+  {
+    digitalWrite(WIFI_LED, LOW);
+    Serial.println("\nStartup WiFi failed - entering offline mode");
+  }
 }
 
+// --------------------
+// Main Loop
+// --------------------
 void loop()
 {
   app.loop();
 
-  if (app.ready())
+  // --------------------
+  // Reconnect Button
+  // --------------------
+  bool currentButtonState = digitalRead(WIFI_BUTTON);
+
+  if (lastButtonState == HIGH && currentButtonState == LOW)
   {
-    // --------------------
-    // BUTTON INCREMENT
-    // --------------------
-    bool currentButtonState = digitalRead(BUTTON_PIN);
-
-    if (lastButtonState == HIGH && currentButtonState == LOW)
-    {
-      Serial.println("Button pressed!");
-      incrementOccupancy();
-      delay(200); // debounce
-    }
-
-    lastButtonState = currentButtonState;
-
-    // --------------------
-    // ULTRASONIC DETECTION
-    // --------------------
-    long distance = readDistanceCM();
-
-    if (distance > 0)  // valid reading
-    {
-      Serial.print("Distance: ");
-      Serial.println(distance);
-
-      // Object enters detection zone
-      if (distance < DISTANCE_THRESHOLD && !objectDetected)
-      {
-        Serial.println("Car detected...");
-        objectDetected = true;
-      }
-
-      // Object leaves detection zone (full pass complete)
-      if (distance >= DISTANCE_THRESHOLD && objectDetected)
-      {
-        Serial.println("Car passed! Incrementing...");
-        incrementOccupancy();
-        objectDetected = false;
-      }
-    }
-
-    delay(100); // small loop delay
+    reconnectWiFi();
   }
+
+  lastButtonState = currentButtonState;
+
+  // --------------------
+  // Read Sensors
+  // --------------------
+  long entryDistance = readDistanceCM(ENTRY_TRIG_PIN, ENTRY_ECHO_PIN);
+  delay(60);
+  long exitDistance = readDistanceCM(EXIT_TRIG_PIN, EXIT_ECHO_PIN);
+
+  // Debug if sensors fail
+  if (entryDistance <= 0)
+    Serial.println("Entry sensor not detecting");
+
+  if (exitDistance <= 0)
+    Serial.println("Exit sensor not detecting");
+
+  // --------------------
+  // ENTRY SENSOR
+  // --------------------
+  if (entryDistance > 0)
+  {
+    if (entryDistance < DISTANCE_THRESHOLD && !entryObjectDetected)
+    {
+      Serial.println("Car entering...");
+      entryObjectDetected = true;
+      digitalWrite(ENTRY_LED, HIGH);
+    }
+
+    if (entryDistance >= DISTANCE_THRESHOLD && entryObjectDetected)
+    {
+      Serial.println("Car entered!");
+      incrementOccupancy();
+      entryObjectDetected = false;
+      digitalWrite(ENTRY_LED, LOW);
+    }
+  }
+
+  // --------------------
+  // EXIT SENSOR
+  // --------------------
+  if (exitDistance > 0)
+  {
+    if (exitDistance < DISTANCE_THRESHOLD && !exitObjectDetected)
+    {
+      Serial.println("Car exiting...");
+      exitObjectDetected = true;
+      digitalWrite(EXIT_LED, HIGH);
+    }
+
+    if (exitDistance >= DISTANCE_THRESHOLD && exitObjectDetected)
+    {
+      Serial.println("Car exited!");
+      decrementOccupancy();
+      exitObjectDetected = false;
+      digitalWrite(EXIT_LED, LOW);
+    }
+  }
+
+  delay(100);
 }
 
 // --------------------
 // Firebase Callback
 // --------------------
-void processData(AsyncResult &aResult) {
+void processData(AsyncResult &aResult)
+{
   if (!aResult.isResult())
     return;
 
